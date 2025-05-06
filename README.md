@@ -85,3 +85,7 @@ and 5 troughs. (i.e. the 5 complex-conjugate root-pairs for a order-10 polynomia
 FFT can provide this data in a more computationlly elegant,accurate, efficent 
 and noise-tolerant manner than LPC.
 The bounding I use is roughly based on mel-scale, with no bounding of lower bin frequencies, scaling up to wide bounds on the higher end high-freqency bins.
+
+I want to try mapping top-N bins to phonetic sounds as a very simplistic 
+feature-to-phoneme system with a similar simple phoneme-to-word codebook
+for a super lightweight recognizer.
