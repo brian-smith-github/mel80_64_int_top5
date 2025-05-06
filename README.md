@@ -2,7 +2,7 @@
 
 (this is a quick brain-dump of experimental stuff, excuse the typos etc)
 
-This code is used for experiments in how much abuse can be give to 
+This code is used for experiments in how much abuse can be given to 
 the feature-data being fed into the Whisper back-end neural net recognizer,
 while still maintaining a low word-error rate (WER).
 
@@ -73,15 +73,15 @@ Levels as low as 4 bits (scaled) for the sample data,
 2 bits for the window function
 and 2 bits for the FFT twiddles seem acceptable, paving the way for potential 8-bit feature extraction!
 - Conversion to cepstrum data via DCT is a bad idea - more recent research 
-bears this out, Whisper forgoes DCT and works on high-dimensional raw low-mel bin data (80 mel bins), which is computationally more intsnse but acceptable 
+bears this out, Whisper forgoes DCT and works on high-dimensional raw low-mel bin data (80 mel bins), which is computationally more intense but acceptable 
 with modern hardware.
 - Mel-bins are _not_ needed as a process step. When the number of FFT output bins is relatively near the number of expected mel output bins, it doesn't make
 much sense to do a conversion really.
-- All you _really_ need to know are where/what the top 5 FFT bins are.
+- All you _really_ need to know are where/what the top 5 (bounded) FFT bins are.
 This is an interesting discovery, and ties in whith the historical use of
 10th-order LPC-based voice codecs (e.g. CELP, MELP, Speex etc) which simiarly
 code speech frames in the frequency domain as a curve with (up to) 5 peaks 
 and 5 troughs. (i.e. the 5 complex roots for a order-10 polynomial).
 FFT can provide this data in a more computationlly elegant,accurate, efficent 
 and noise-tolerant manner than LPC.
-
+The bounding I use is roughly based on mel-scale, with no bounding of lower bin frequencies, scaling up to wide bounds on the higher end high-freqency bins.
