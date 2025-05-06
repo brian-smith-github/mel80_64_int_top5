@@ -78,10 +78,10 @@ with modern hardware.
 - Mel-bins are _not_ needed as a process step. When the number of FFT output bins is relatively near the number of expected mel output bins, it doesn't make
 much sense to do a conversion really.
 - All you _really_ need to know are where/what the top 5 (bounded) FFT bins are.
-This is an interesting discovery, and ties in whith the historical use of
+This is an interesting discovery, and ties in with the historical use of
 10th-order LPC-based voice codecs (e.g. CELP, MELP, Speex etc) which simiarly
 code speech frames in the frequency domain as a curve with (up to) 5 peaks 
-and 5 troughs. (i.e. the 5 complex roots for a order-10 polynomial).
+and 5 troughs. (i.e. the 5 complex-conjugate root-pairs for a order-10 polynomial).
 FFT can provide this data in a more computationlly elegant,accurate, efficent 
 and noise-tolerant manner than LPC.
 The bounding I use is roughly based on mel-scale, with no bounding of lower bin frequencies, scaling up to wide bounds on the higher end high-freqency bins.
