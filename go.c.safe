@@ -1,0 +1,264 @@
+// generate /tmp/mel80 80-mel data to feed to whisper_test/doit
+#include <stdio.h>
+#include <stdlib.h>
+#include <math.h>
+#include <strings.h>
+
+#define FFT 128
+#define FF2 65
+#define N 64 // 10ms
+#define NW  128        /* analysis window size   (279)            */
+
+// twiddles resolution......
+#define FFTRES 8  // 128=solid, 8=ok 4=iffy, 2=iffy, 1=nope. Best=8 for now
+int fftdiv=8;  // needs to be SAME
+
+
+// FFT window resolution....
+//#define WINRES 256.0 // resolution of window function. This is too high
+#define WINRES 64.0 // medium, best so far really
+//#define WINRES 4.0 // Test resolution, 8 OK, 4 iffy, 2 absolute min though.
+
+// sample resolution........
+//#define SAMP_DIV (1<<15) // doesn't need to be this high but safe-fallback
+//#define SAMP_MUL (1<<14)
+
+#define SAMP_DIV (1<<7)  // this is OK....
+#define SAMP_MUL (1<<6)
+
+// Testing for fun.... (4/3 seems good, 3/2 iffy,  2/1 iffy,  1/0 too low)
+//#define SAMP_DIV (1<<4)
+//#define SAMP_MUL (1<<3)
+
+// number of top-N bins to use......
+#define TOPN 5 // 5 or 4 is good, 3 OK, even 2 sometimes OK
+
+
+
+#define CHANS80 80
+
+int b[FF2]={ 0,64,32,96,16,80,48,112,8,72,40,104,24,88,56,120,4,68,36,100,
+20,84,52,116,12,76,44,108,28,92,60,124,2,66,34,98,18,82,50,114,10,74,42,106,
+26,90,58,122, 6,70,38,102,22,86,54,118,14,78,46,110,30,94,62,126,1};
+
+
+//----------------------------------------------------------------------
+void rootsofunity(int *realtwiddle, int *imtwiddle, unsigned int len)
+{
+    float twopi = 6.28318530717959;
+    float x;
+    unsigned int n;
+
+    for(n=1; n<(len>>1); n++)
+    {
+       x = floor(cos(twopi*n/len)*FFTRES+0.5);  realtwiddle[n]=x;
+       x = floor(-sin(twopi*n/len)*FFTRES+0.5); imtwiddle[n]=x;
+       //printf("%2i:  %i, %i\n",n,realtwiddle[n],imtwiddle[n]);
+    }
+    //exit(0);
+}
+
+//-----------------------------------------------------------------------
+void simple_fft(int *re, int *im, int *tr, int *ti, int a)
+{
+    unsigned int even, odd, span, log, rootindex;    // indexes
+    int temp,temp1,temp2,temp3,temp4;
+    log=0;
+    int i;
+
+    for(span=a>>1; span; span>>=1, log++)   
+    {
+        //printf("log=%i,span=%i\n",log,span);
+        for(odd=span; odd<a; odd++)         // iterate over the dual nodes
+        {
+	    
+            odd |= span;                    // iterate over odd blocks only
+            even = odd ^ span;              // even part of the dual node pair
+            //printf("even=%i,odd=%i\n",even,odd);
+                       
+            temp = re[even] + re[odd];       
+            re[odd] = re[even] - re[odd];
+            re[even] = temp;
+           
+            temp = im[even] + im[odd];           
+            im[odd] = im[even] - im[odd];
+            im[even] = temp;
+           
+            rootindex = (even<<log) & (a-1); // find root of unity index
+            if(rootindex)                    // skip rootindex[0] (has an identity)
+            {
+	        //printf("twiddle, index=%i....\n",rootindex);
+                temp1=tr[rootindex]*re[odd];		
+		temp2=-ti[rootindex]*im[odd];
+                temp3=tr[rootindex]*im[odd];
+		temp4=ti[rootindex]*re[odd];
+		if (abs(temp1)>(1<<28)) printf("oops1\n");
+		if (abs(temp2)>(1<<28)) printf("oops2\n");
+		if (abs(temp3)>(1<<28)) printf("oops3\n");
+		if (abs(temp4)>(1<<28)) printf("oops4\n");
+                re[odd] = (temp1+temp2)/fftdiv;
+		im[odd] = (temp3+temp4)/fftdiv;
+            }
+   
+        } // end of loop over n
+     } // end of loop over FFT stages
+     //exit(0);
+} //end of function
+
+
+
+//---------------------------------------------------------------------------
+
+void main()
+{
+  FILE *fp,  *fp_out;
+  float f[FFT],f2[FFT],f3[201],window[FFT];
+  short s[FFT];
+ 
+  int i,j,k,m,n,posn=0,z,bot,top;
+
+  double x,y,prev=0;
+  float mel[CHANS80],tot,e,e2;
+  static float mel2[CHANS80][3000];  // normally 3000
+  float wts[CHANS80][201];
+  float min,max,min2,max2,max3,div,mul;
+  int re[FFT],im[FFT];
+  int tr[FFT],ti[FFT];
+  int fi[FFT],windowi[FFT];
+  
+  fp=fopen("wts","r"); z=fread(wts,CHANS80*201,4,fp); fclose(fp);
+  rootsofunity(tr,ti,FFT);
+  
+  // try openLPC-style window function....
+  for (i=0,j=FFT-1; i<FFT/2; i++,j--) {
+     window[i]=sin(.5*M_PI*sin(M_PI*(i+.5)/FFT) * sin(M_PI*(i+.5)/FFT));
+     window[j]=window[i];
+  }
+  for (i=0; i<FFT; i++) windowi[i]=(int)(window[i]*WINRES+0.5);
+  //for (i=0; i<FFT; i++) printf("%i,",windowi[i]); printf("\n"); // exit(0);
+     
+  //for (i=0; i<FFT; i++) printf("%f\n",window[i]); exit(0);
+  
+  for (i=0; i<FFT; i++) f2[i]=0.0;
+  for (i=0; i<FFT; i++) s[i]=0;
+  //===========
+  fp=fopen("/tmp/a64.raw","r"); fp_out=fopen("/tmp/mel80","w"); 
+  //fp=fopen("/home/briansm/corpus/CHAINS/full64.raw","r"); fp_out=fopen("/tmp/mel80","w");
+
+  //-------------------------------------------------------------------------
+  max=-1000;
+  while(!feof(fp)) {
+    z=fread(s,N,2,fp);
+    for (i=NW-N,j=0; i<NW; i++,j++) {
+      x=(float)s[j];
+      f2[i]=x-prev; prev=x;  // 1.0 pre-emph?
+    }
+    max2=-100000; min2=1000000;
+    for (i=0; i<NW; i++) {
+      if (f2[i]>max2) max2=f2[i];
+      if (f2[i]<min2) min2=f2[i];
+    }
+    if (-min2>max2) max2=-min2;
+    //printf("max2= %.0f\n",max2);
+    
+    div=1.0;  while(max2>SAMP_DIV) {div*=2.0; max2/=2.0;}
+    mul=1.0;  while(max2<SAMP_MUL) {mul*=2.0; max2*=2.0;}
+    
+    //printf("div=%f, mul=%f\n",div,mul);
+    if (div!=1.0) for (i=0; i<FFT; i++) f[i]=floor(f2[i]/div+0.5);
+    else for (i=0; i<FFT; i++) f[i]=floor(f2[i]*mul+0.5);
+    
+    for (i=0; i<FFT; i++) fi[i]=(int)(f[i]*windowi[i]); 
+    for (i=0; i<FFT; i++) f[i]=f[i]*window[i]; 
+       
+    for (i=0; i<FFT; i++) {re[i]=fi[i]; im[i]=0;}
+    simple_fft(re,im,tr,ti,FFT);
+    for (i=0; i<FF2; i++) {n=b[i]; x=re[n]; y=im[n]; f[i]=x*x+y*y;}
+    for (i=0; i<FF2; i++) f[i]/=(WINRES*WINRES); // undo window scaling
+    
+    //for (i=0; i<FF2; i++) printf("%i:  %f  %f\n",i,f[i],f4[i]); exit(0);
+    
+    
+    for (i=0; i<FF2; i++) f[i]=f[i]/(32768.0*32768.0);
+    for (i=0; i<FF2; i++) f[i]=f[i]*(div*div);
+    for (i=0; i<FF2; i++) f[i]=f[i]/(mul*mul);
+    
+    for (i=0; i<FF2; i++) f[i]=log(f[i]);
+    
+    max2-=100000;
+    for (n=1; n<FF2; n++) if (f[n]>max2) max2=f[n];
+    //max2-=6.0;
+    //for (n=0; n<FF2; n++) if (f[n]<max2) f[n]=max2;
+   
+  
+    // only keep top N bins?
+    for (n=0; n<FF2; n++) f2[n]=-100.0;
+   
+    for (i=0; i<TOPN; i++) {  
+      max3=-99999; top=0;
+      for (n=1; n<FF2; n++) if (f[n]>max3) {max3=f[n]; top=n;} 
+        f2[top]=max3; // default actual energy
+	
+        //float drop[5]={0, 0.1, 0.2, 2.0, 3.0};
+        //float drop[5]={0, 0.1, 0.1, 0.1, 2.0}; // OK
+        //float drop[5]={0, 0.0, 0.0, 0.0, 0.0};  // flat energy - iffy
+        //float drop[5]={0,0,0,0, 2.0}; // dip in 5th peak only? iffy
+        float drop[5]={0,0,0, 2.0 , 2.0}; // dip in 4th,5th peak only? OK
+        //float drop[5]={0,0,3.0, 3.0 , 3.0}; // dip in 3rd/4th/th peaks? Na
+       
+        //f2[top]=max2+6.0-drop[i]; // fixed-staggered energy? (seems OK-ish)
+             
+        f[top]=-999;
+        if (top>0) {f[top-1]=-999;     if (f2[top-1]<f2[top]-2) f2[top-1]=f2[top]-2;}
+        if (top<FF2-1) {f[top+1]=-999; if (f2[top+1]<f2[top]-2) f2[top+1]=f2[top]-2;}
+        if (top>10) {f[top+2]=-999; if (f2[top+2]<f2[top]-3) f2[top+2]=f2[top]-3;}
+        if (top>10) {f[top-2]=-999; if (f2[top-2]<f2[top]-3) f2[top-2]=f2[top]-3;}
+        if (top>20) {f[top+3]=-999; if (f2[top+3]<f2[top]-4) f2[top+4]=f2[top]-4;}
+        if (top>20) {f[top-3]=-999; if (f2[top-3]<f2[top]-4) f2[top-3]=f2[top]-4;}
+        if (top>30) {f[top+4]=-999; f2[top+4]=f2[top]-3;}
+        if (top>30) {f[top-4]=-999; f2[top-4]=f2[top]-3;}
+        printf("%i:%.1f, ",top, max3);
+        if (max3<max2-6.0) i=100;
+     }  printf("\n");
+     for (n=0; n<FF2; n++) f[n]=f2[n];
+  
+    
+    //-----------------------------------------------
+    for (i=0; i<FF2; i++) f[i]=exp(f[i]);
+    for (i=0; i<201; i++) f3[i]=0; // sanity
+      for (n=0; n<81; n++)  {  // need to strech the FFT bins slightly....
+       i=n*FF2/81;
+       f3[n]=f[i];
+    }
+    // now estimate the 80 Mel bins...
+    for (n=0; n<CHANS80; n++) {
+       tot=0.0; for (i=0; i<201; i++) tot+=(f3[i])*wts[n][i];
+       mel[n]=tot;
+    }
+ 
+    for (n=0; n<CHANS80; n++) {
+       if (mel[n]<1e-10) mel[n]=1e-10;
+       mel[n]=log10f(mel[n]);  
+       if (mel[n]>max) max=mel[n];
+    }
+    for (n=0; n<CHANS80; n++) mel2[n][posn]=mel[n];    
+    for (i=0; i<NW-N; i++) f2[i]=f2[i+N]; // shift samples down...
+    posn++;
+  }
+   
+  // tidy-up across all (up to 3000) frames now...
+  for (i=0; i<posn; i++) for (n=0; n<CHANS80; n++){  
+    //if (mel2[n][i]<(max-8.0)) mel2[n][i]=max-8.0; // default, too high
+    //if (mel2[n][i]<(max-6.0)) mel2[n][i]=max-6.0;
+    //if (mel2[n][i]<(max-5.0)) mel2[n][i]=max-5.0;
+    if (mel2[n][i]<(max-4.5)) mel2[n][i]=max-4.5; // best
+    mel2[n][i]=(mel2[n][i]+4.0)/4.0;
+  }
+
+  printf("0:%.4f\n",max);
+  // pad out the remaining space to 30 seconds...
+  for (i=posn; i<3000; i++) for (n=0; n<CHANS80; n++) mel2[n][i]=(max-8.0+4.0)/4.0;
+  fwrite(mel2,80*3000,4,fp_out);
+  fclose(fp); fclose(fp_out);
+ 
+}

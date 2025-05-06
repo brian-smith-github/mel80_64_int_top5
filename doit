@@ -1,0 +1,10 @@
+#!/bin/bash
+echo "working... (takes longer with big models)"
+sox /tmp/a16.wav -r 6400  -c 1 -b16 -esigned /tmp/a64.raw
+./go > /tmp/f.txt # generate /tmp/mel80 - 3000 frames of 80 log-mel levels
+cp /tmp/mel80 archive/data/0
+zip -r a.zip archive > /dev/null 2>&1
+mv -f a.zip file2.pt
+python go.py 2>/dev/null
+echo and now the regular Whisper STT result......
+python go_safe.py 2> /dev/null

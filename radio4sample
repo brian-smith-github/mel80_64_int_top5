@@ -1,0 +1,5 @@
+#!/bin/bash
+mplayer -playlist http://as-hls-ww-live.akamaized.net/pool_55057080/live/ww/bbc_radio_fourfm/bbc_radio_fourfm.isml/bbc_radio_fourfm-audio%3d96000.norewind.m3u8 -dumpstream -dumpfile /tmp/stream.dump
+
+ffmpeg -i /tmp/stream.dump -f s16le -acodec pcm_s16le  - 2>/dev/null | sox -t raw -r 88200  -c 1 -b16 -esigned - -r 16000 /tmp/a16.wav
+sox /tmp/a16.wav -r 6400  -c 1 -b16 -esigned /tmp/a64.raw
