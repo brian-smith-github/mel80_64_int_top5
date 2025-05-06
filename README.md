@@ -29,7 +29,7 @@ transcription gets done in a few seconds.
 
 # Things I've discovered:
 - The sample rate of the audio can definitely be dropped from 16000samps/sec 
-down to 6400 samps/sec without any significant WER drop. This is useful
+down to 6400 samps/sec without any significant WER rise. This is useful
 as it allows a nice power-of-2 FFT in the feature extractor. Surprisingly,
 if anything the transcriptions at this sample rate seem _better_ than regular
 whisper transcriptions at the regular sample rate! I imagine this is because
