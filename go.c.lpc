@@ -1,0 +1,206 @@
+// generate /tmp/mel80 80-mel data to feed to whisper_test/doit
+#include <stdio.h>
+#include <stdlib.h>
+#include <math.h>
+#include <fftw3.h>
+#include <strings.h>
+
+#define ORDER 6   // order-5 or order-6 seems optimal here....
+
+#define FFT 160  // 25ms (6400*0.025)
+#define FF2 81 // FFT/2+1
+#define N 64 // 10ms
+#define CHANS 80  // use 17custom i.e. hand-chosen freqs
+#define NW       160        /* analysis window size   (279)            */
+
+
+//----------------------------------------------------------------------------
+
+void autocorrelate(
+  float Sn[],	/* frame of Nsam windowed speech samples */
+  float Rn[],	/* array of P+1 autocorrelation coefficients */
+  int Nsam,	/* number of windowed samples to use */
+  int order	/* order of LPC analysis */
+)
+{
+  int i,j;	/* loop variables */
+  float x;
+
+  for(j=0; j<order+1; j++) {
+    x = 0.0;
+    for(i=0; i<Nsam-j; i++) x+=Sn[i]*Sn[i+j];
+    Rn[j]=x;
+  }
+  if (Rn[0]<1.0) Rn[0]=1.0; // prevent div-by-0 later
+}
+
+
+
+//-------------------------------------------------------------
+void lpc_schr(float *r, float *k, int p)
+{
+    int i,j;
+    float temp,y1[p+2],y2[p+2];
+ 
+    k[1] = -r[1]/r[0];
+    y2[1] = r[1];
+    y2[2] = r[0]+k[1]*r[1];
+
+    for(i=2; i <= p; i++)
+    {
+        y1[1] = temp = r[i];
+	
+        for(j=1; j < i; j++)
+        {
+            y1[j+1] = y2[j] + k[j]*temp;
+            temp += k[j]*y2[j];
+            y2[j] = y1[j];
+        }
+        k[i] = -temp/y2[i];
+	if (k[i]<-1.0) k[i]=-1.0; 
+	if (k[i]>1.0) k[i]=1.0;
+	
+	
+        y2[i+1] = y2[i]+k[i]*temp;
+        y2[i] = y1[i];
+    }
+}
+
+//-------------------------------------------------------------------
+void lpc_refl2pred(float *k,float *a,int p)
+{
+    int   i,j;
+    float a1[p+1];
+    
+    for(i=1; i <= p; i++)
+    {
+        /* refl to a recursion */
+        a[i] = k[i];
+        for(j=1; j < i; j++)
+            a1[j] = a[j];
+        for(j=1; j < i; j++)
+            a[j] = a1[j] + k[i]*a1[i-j];
+    }
+    a[0]=1.0;
+}
+
+//---------------------------------------------------------------------------
+
+void main()
+{
+  FILE *fp,  *fp_out;
+  float f[FFT],f2[FFT],f3[201],window[FFT],o[FFT];
+  float R[ORDER+1],k[ORDER+1],a[ORDER+1];
+  short s[FFT];
+  fftwf_complex out[FFT];
+  fftwf_plan fft,ifft;
+  int i,j,m,n,posn=0,z;
+
+  float x,prev=0;
+  float mel[CHANS],top,tot,e,e2;
+  static float mel2[CHANS][3000];
+  float wts[CHANS][201];
+  float min,max;
+  //setup_wts(wts,iwts);
+  fp=fopen("wts","r"); z=fread(wts,CHANS*201,4,fp); fclose(fp);  
+  
+  fft = fftwf_plan_dft_r2c_1d(FFT, f, out, FFTW_PATIENT);
+  ifft = fftwf_plan_dft_c2r_1d(FFT, out, f, FFTW_PATIENT);
+  for(i=0; i<FFT; i++) window[i] = 0.0;
+  for(i=FFT/2-NW/2,j=0; i<FFT/2+NW/2; i++,j++) window[i]=0.5-0.5*cos(2.0*M_PI*j/(NW-1));
+  
+  for (i=0; i<FFT; i++) o[i]=0.0; // output window
+  for (i=0; i<FFT; i++) f2[i]=0.0;
+  for (i=0; i<FFT; i++) s[i]=0;
+  //===========
+  fp=fopen("/tmp/a64.raw","r"); fp_out=fopen("/tmp/mel80","w"); 
+ 
+  //-------------------------------------------------------------------------
+  max=-100;
+  while(!feof(fp)) {
+    z=fread(s,N,2,fp);
+    for (i=NW-N,j=0; i<NW; i++,j++) {
+      x=(float)s[j];  // x/=32768.0;
+      f2[i]=x;
+      f2[i]=x-prev; prev=x;  // 1.0 pre-emph?
+    }
+    for (i=0; i<FFT; i++) f[i]=f2[i]*window[i]; 
+    //for (i=0; i<FFT; i++) f[i]=f2[i];  // no window?  
+   
+    autocorrelate(f,R,FFT,ORDER);
+    lpc_schr(R,k,ORDER);
+    lpc_refl2pred(k,a,ORDER);
+    e=0; for (i=0; i<=ORDER; i++) e+=a[i]*R[i]; if (e<0) e=0;
+    e=e/32768.0;
+    e=e/32768.0;
+
+/*    
+    // try quantizing reflections....
+    // quantize the reflections in LAR form.....
+    // convert to LAR....
+    for (i=1; i<=ORDER; i++) k[i]=log((1-k[i])/(1+k[i]));
+       
+    // quantize.... (32 levels max per bin, lower range in bin 3,4)
+    for (i=1; i<=ORDER; i++) {
+         k[i]=floor(k[i]*4.0+0.5);
+	 if (k[i]<-15) k[i]=-15;   
+	 if (k[i]>16) k[i]=16;
+	 k[i]=k[i]/4.0;	 
+     }
+
+     //printf("%i: ",posn/N);
+     for (i=1; i<=ORDER; i++) printf("%.0f,",k[i]*4.0); printf("\n");
+       
+     // convert LAR back to reflection...
+     for (i=1; i<=ORDER; i++) k[i]=(1-exp(k[i]))/(1+exp(k[i]));      
+*/       
+    
+    
+    //for (i=0; i<ORDER; i++) printf("%.3f,",k[i]); printf("\n");
+    lpc_refl2pred(k,a,ORDER); // the filter with quantized refs.
+    
+    
+    //for (i=0; i<ORDER; i++) printf("%.3f,",a[i]); printf("  e=%.2f\n\n",e);
+    
+    // comment out next line for normal FFT (and remove divisor on f3 line)
+    for (i=0; i<=ORDER; i++) f[i]=a[i]; for (i=ORDER+1; i<FFT; i++) f[i]=0; 
+    fftwf_execute(fft);
+    for (i=0; i<201; i++) f3[i]=0;
+    
+    // non-LPC version:
+    //for (i=0; i<FF2; i++) f3[i]=out[i][0]*out[i][0]+out[i][1]*out[i][1];
+    
+    // LPC version:
+    for (i=0; i<FF2; i++) f3[i]=e/(out[i][0]*out[i][0]+out[i][1]*out[i][1]);
+    
+    // LPC but as harmoncs version:
+    //for (i=FF2/20; i<FF2; i+=FF2/20) f3[i]=e/(out[i][0]*out[i][0]+out[i][1]*out[i][1]);
+   
+    // now estimate the 80 Mel bins...
+    for (n=0; n<CHANS; n++) {
+       tot=0.0; for (i=0; i<201; i++) tot+=(f3[i])*wts[n][i];
+       mel[n]=tot;
+    }
+ 
+    for (n=0; n<CHANS; n++) {
+       if (mel[n]<1e-10) mel[n]=1e-10;
+       mel[n]=log10f(mel[n]);  
+       if (mel[n]>max) max=mel[n];
+    }
+    for (n=0; n<CHANS; n++) mel2[n][posn]=mel[n];    
+    for (i=0; i<NW-N; i++) f2[i]=f2[i+N]; // shift samples down...
+    posn++;
+  }
+  for (i=0; i<posn; i++) for (n=0; n<CHANS; n++){  
+    if (mel2[n][i]<(max-8.0)) mel2[n][i]=max-8.0;
+    mel2[n][i]=(mel2[n][i]+4.0)/4.0;
+  }
+  // test 50fps.....
+  //for (i=0; i<posn; i+=2) for (n=0; n<CHANS; n++) mel2[n][i+1]=mel2[n][i];
+  
+  printf("max=%.4f\n",max);
+  for (i=posn; i<3000; i++) for (n=0; n<CHANS; n++) mel2[n][i]=(max-8.0+4.0)/4.0;
+  fwrite(mel2,80*3000,4,fp_out);
+  fclose(fp); fclose(fp_out);
+ 
+}
