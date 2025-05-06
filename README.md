@@ -73,7 +73,7 @@ Levels as low as 4 bits (scaled) for the sample data,
 2 bits for the window function
 and 2 bits for the FFT twiddles seem acceptable, paving the way for potential 8-bit feature extraction!
 - Conversion to cepstrum data via DCT is a bad idea - more recent research 
-bears this out, Whisper forgoes DCT and works on high-dimensional raw low-mel bin data (80 mel bins), which is computationally more intense but acceptable 
+bears this out, Whisper forgoes DCT and works on high-dimensional raw log-mel bin data (80 mel bins), which is computationally more intense but acceptable 
 with modern hardware.
 - Mel-bins are _not_ needed as a process step. When the number of FFT output bins is relatively near the number of expected mel output bins, it doesn't make
 much sense to do a conversion really.
