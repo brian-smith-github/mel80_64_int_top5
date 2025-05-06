@@ -1,5 +1,7 @@
 # Experimenting with lightweight feature extraction front-end for Whisper STT
 
+(this is a quick brain-dump of experimental stuff, excuse the typos etc)
+
 This code is used for experiments in how much abuse can be give to 
 the feature-data being fed into the Whisper back-end neural net recognizer,
 while still maintaining a low word-error rate (WER).
