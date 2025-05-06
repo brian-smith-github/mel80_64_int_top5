@@ -1,4 +1,4 @@
-# Injection-attack version
+# Alternative feature-data version
 
 import whisper
 import torch
