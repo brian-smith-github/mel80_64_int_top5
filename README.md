@@ -9,10 +9,10 @@ while still maintaining a low word-error rate (WER).
 live talk-radio to use as an infinite stream of test data, which is useful, and
 converts it into /tmp/a16.wav file in the regular format that Whisper takes.
 (16000 samples/second, 16 bit PCM audio),
-and also /tmp/a64.raw (6400 samplples/second bit PCM audio) as used by the
+and also /tmp/a64.raw (6400 samples/second bit PCM audio) as used by the
 alternative feature extraction code.
 
-- The 'doit script runs the 'go.c' C code which reads /tmp/a64.raw and 
+- The 'doit' script runs the 'go.c' C code which reads /tmp/a64.raw and 
 generates alternative log-mel feature
 data, puts that into the regular format the the Whisper neural-net  back-end
 and does STT on it.
@@ -34,7 +34,7 @@ whisper transcriptions at the regular sample rate! I imagine this is because
 irrelivent noise in the audio above the 3200Hz top-end of dominant formant
 freqencies is being filtered out. (Nyquist)
 - pre-emphasis level doesn't seem to make any difference, allowing for use
-of 'heavy' 1.0 pre-emphasis (compared to ususal 0.975 or 15/16 traditionally
+of 'heavy' 1.0 pre-emphasis (compared to usual 0.975 or 15/16 traditionally
 used) which makes the process much more computationally efficient and elegant, 
 it just becomes delta-coding (subtract previous sample from current one).
 - 20ms frame width instead of regular 25ms is absolutely fine and has
@@ -67,7 +67,8 @@ boundaries than Hann, and yeilds improved results.
     Can all be dropped to surprisingly low levels. I've been experimenting with
 this in the same way the LLM folks are toying with low-bit quantized weights, 
 seeing how low they can go while maintaining decent results.
-Levels as low as 3 bits for the sample data, 2 bits for the window function
+Levels as low as 4 bits (scaled) for the sample data,
+2 bits for the window function
 and 2 bits for the FFT twiddles seem acceptable, paving the way for potential 8-bit feature extraction!
 - Conversion to cepstrum data via DCT is a bad idea - more recent research 
 bears this out, Whisper forgoes DCT and works on high-dimensional raw low-mel bin data (80 mel bins), which is computationally more intsnse but acceptable 
